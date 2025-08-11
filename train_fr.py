@@ -149,8 +149,6 @@ def train_step_pt(model, dataset_list, batch_size=4, gamma=1.0, device='cpu', op
 def train_step(model, dataset_list, split_datasets, data, batch_size=4, device='cpu', optimizer=None, scheduler=None):
     model.train()
 
-    fr_weightloss = torch.zeros(1, device=device)
-
     indices = random.sample(range(len(dataset_list)), batch_size)
 
     #Cache embeddings
