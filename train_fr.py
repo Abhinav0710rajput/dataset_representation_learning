@@ -149,49 +149,50 @@ def train_step_pt(model, dataset_list, batch_size=4, gamma=1.0, device='cpu', op
 def train_step(model, dataset_list, split_datasets, data, batch_size=4, device='cpu', optimizer=None, scheduler=None):
     model.train()
 
-    pos_pairs = []
-    neg_pairs = []
+    fr_weightloss = torch.zeros(1, device=device)
 
     indices = random.sample(range(len(dataset_list)), batch_size)
 
-    loss = torch.zeros(1, device=device)
+    #Cache embeddings
+    cache = {}
+    for idx in indices:
+        d = dataset_list[idx]
+        x, y = d  # or sample_batch(*d)
+        x = x.to(device)
+        y = y.to(device)
+        e = model(x, y) 
+        cache[idx] = {
+            "embedding": e.unsqueeze(0),
+            "name": split_datasets[idx],  
+        }
 
-    pair_idx = 0
-    total_pairs = len(indices) * (len(indices) - 1) // 2
+    #Precompute RS vectors 
+    rs_cache = {}
+    for idx in indices:
+        dname = cache[idx]["name"]
+        rs = torch.tensor(
+            data[data['Dataset'] == dname][['DT', 'RF', 'SVM', 'NB', 'KNN']].values,
+            dtype=torch.float32,
+            device=device
+        )
+        rs_cache[idx] = rs
 
-    c = 0
+    #FR loss
+    fr_loss = torch.zeros(1, device=device)
     for i, idx_i in enumerate(indices):
+        e1 = cache[idx_i]["embedding"]
+        rs_i = rs_cache[idx_i]
+
         for idx_j in indices[i+1:]:
-            d1 = dataset_list[idx_i]
-            d2 = dataset_list[idx_j]
-            x1, y1 = d1#sample_batch(*d1)
-            x2, y2 = d2#sample_batch(*d2)
-            x1 = x1.to(device)
-            x2 = x2.to(device)
-            y1 = y1.to(device)
-            y2 = y2.to(device)
-            e1 = model(x1, y1).unsqueeze(0)
-            e2 = model(x2, y2).unsqueeze(0)
+            e2 = cache[idx_j]["embedding"]
+            rs_j = rs_cache[idx_j]
 
-            d_embed = torch.norm(e1-e2, p=2)
-
-            d1name = split_datasets[idx_i]
-            d2name = split_datasets[idx_j]
-
-            rs_i = torch.tensor(data[data['Dataset'] == d1name][['DT', 'RF', 'SVM', 'NB', 'KNN']].values,dtype=torch.float32,device=device)
-            rs_j = torch.tensor(data[data['Dataset'] == d2name][['DT', 'RF', 'SVM', 'NB', 'KNN']].values,dtype=torch.float32,device=device)
-
+            d_embed = torch.norm(e1 - e2, p=2)
             d_rs = torch.norm(rs_i - rs_j, p=2)
 
-            loss += (d_embed - d_rs)**2
-
-            pair_idx += 1
-            print(f"{pair_idx}/{total_pairs}")
+            fr_loss += (d_embed - d_rs) ** 2
             
-
-    loss = loss/total_pairs 
-
-    print("check")
+    loss = fr_loss/(batch_size*(batch_size-1)/2) 
 
     if optimizer:
         optimizer.zero_grad()
@@ -229,6 +230,8 @@ if __name__ == "__main__":
     torch.cuda.set_device(device)
     print(f"\n Using device: {device} — {torch.cuda.get_device_name(device_id)}")
 
+    device = 'cpu'
+
     mode = args.mode
 
     epoch_pt = 10000
@@ -265,7 +268,6 @@ if __name__ == "__main__":
         dataset_list = load_all_datasets(data_names=split_datasets)
         print(f"Loaded {len(dataset_list)} datasets | Split {split}")
 
-       # device = 'cuda' if torch.cuda.is_available() else 'cpu' <- hitting memory issues
 
         model = Dataset2Vec(input_dim=2, out_dim=output_dim).to(device)
 
