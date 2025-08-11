@@ -27,5 +27,5 @@
   * **Direct Train**: Train from scratch.
 
     ```bash
-    python train_fr.py --split 1 2 3 4 5 --mode dt
+    python train_rs.py --split 1 2 3 4 5 --mode dt
     ```
